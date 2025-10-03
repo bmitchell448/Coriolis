@@ -1,0 +1,13 @@
+name: Smoke
+
+on:
+  push:
+    branches: [ "main", "pi-build" ]
+  workflow_dispatch:
+
+jobs:
+  ok:
+    runs-on: ubuntu-latest
+    steps:
+      - name: All good
+        run: echo "✅ GitHub Actions YAML parsed and ran"
