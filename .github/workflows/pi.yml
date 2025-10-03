@@ -6,27 +6,40 @@ on:
   workflow_dispatch:
 
 jobs:
-  arm64:
+  arm64-matrix:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        srcdir: [ "lora_shooting-userside", "lora_shooting-targetside", "weather_center", "." ]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Build inside Docker (ARM64 cross-compile, resilient)
+      - name: Show repo tree and CMakeLists
         run: |
           set -euxo pipefail
           echo "Top-level tree:"; ls -la
-          echo "Searching for CMakeLists:"; find . -maxdepth 3 -name CMakeLists.txt -print | sort
-          # Try with host networking; if apt flakes, retry once
-          (docker build --pull --network host -t coriolis-arm64 .) || (sleep 10 && docker build --network host -t coriolis-arm64 .)
-          CID=$(docker create coriolis-arm64)
-          mkdir -p build
-          docker cp "$CID":/src/build ./build || true
-          echo "---- Last 200 container logs ----"
+          echo "CMakeLists found (<=3 levels):"
+          find . -maxdepth 3 -name CMakeLists.txt -print | sort
+
+      - name: Build ${{ matrix.srcdir }} (ARM64 cross, resilient)
+        run: |
+          set -euxo pipefail
+          # Use host networking + one retry to dodge transient Debian mirror issues
+          (docker build --pull --network host -t coriolis-arm64:${{ matrix.srcdir }} --build-arg SRC_DIR="${{ matrix.srcdir }}" .) \
+          || (sleep 10 && docker build --network host -t coriolis-arm64:${{ matrix.srcdir }} --build-arg SRC_DIR="${{ matrix.srcdir }}" .)
+
+          CID=$(docker create coriolis-arm64:${{ matrix.srcdir }})
+          mkdir -p out/${{ matrix.srcdir }}
+          docker cp "$CID":/src/build ./out/${{ matrix.srcdir }} || true
+
+          echo "---- Last 200 container logs for ${{ matrix.srcdir }} ----"
           docker logs "$CID" --tail 200 || true
           docker rm "$CID" || true
 
-      - name: Upload build
+      - name: Upload artifact for ${{ matrix.srcdir }}
         uses: actions/upload-artifact@v4
         with:
-          name: coriolis-arm64
-          path: build
+          name: coriolis-arm64-${{ matrix.srcdir }}
+          path: out/${{ matrix.srcdir }}
