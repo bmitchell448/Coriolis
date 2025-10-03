@@ -1,10 +1,12 @@
 FROM debian:bookworm
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG SRC_DIR="."
 
-# Make APT resilient (retries, timeouts, force IPv4 to dodge runner IPv6 quirks)
+# Harden APT (retries, IPv4) and install cross toolchain + common dev libs
 RUN set -eux; \
   printf 'Acquire::Retries "5";\nAcquire::http::Timeout "25";\nAcquire::https::Timeout "25";\nAcquire::ForceIPv4 "true";\n' > /etc/apt/apt.conf.d/99resilient; \
+  dpkg --add-architecture arm64; \
   apt-get update; \
   apt-get install -y --no-install-recommends \
     ca-certificates git cmake ninja-build pkg-config \
@@ -15,22 +17,21 @@ RUN set -eux; \
 WORKDIR /src
 COPY . /src
 
-# Pick a source directory automatically (or force one—see note below)
+# Pick/validate the source directory
 RUN bash -lc 'set -eux; \
-  PICK="."; \
-  if [ ! -f CMakeLists.txt ]; then \
-    for d in lora_shooting-userside lora_shooting-targetside weather_center; do \
-      if [ -f "$d/CMakeLists.txt" ]; then PICK="$d"; break; fi; \
-    done; \
+  PICK="$SRC_DIR"; \
+  if [ ! -f "$PICK/CMakeLists.txt" ]; then \
+    echo "CMakeLists.txt not found in $PICK"; \
+    echo "Available CMakeLists (<=3 levels):"; \
+    find . -maxdepth 3 -name CMakeLists.txt -print; \
+    exit 1; \
   fi; \
-  echo "==> Using source dir: $PICK"; \
-  test -f "$PICK/CMakeLists.txt"; \
-  echo "$PICK" > .src_dir; \
-  echo "CMakeLists found (<=3 levels):"; find . -maxdepth 3 -name CMakeLists.txt -print'
+  echo "==> Using source dir: $PICK" > /src/.chosen; \
+  cat /src/.chosen'
 
 # Configure & build (ARM64 cross)
 RUN bash -lc 'set -eux; \
-  SRC_DIR=$(cat .src_dir); \
+  SRC_DIR=$(sed -E "s/^==> Using source dir: //" /src/.chosen); \
   cmake -B build -S "$SRC_DIR" -G Ninja \
     -DCMAKE_SYSTEM_NAME=Linux \
     -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
