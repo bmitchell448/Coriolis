@@ -1,0 +1,33 @@
+name: Build for Raspberry Pi (ARM64)
+
+on:
+  push:
+    branches: [ "main", "pi-build" ]
+  workflow_dispatch:
+
+jobs:
+  arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build inside Docker (ARM64 cross-compile, resilient)
+        run: |
+          set -euxo pipefail
+          echo "Top-level tree:"; ls -la
+          echo "Searching for CMakeLists:"; find . -maxdepth 3 -name CMakeLists.txt -print | sort
+          # Retry the build once if the first attempt flakes on apt networking
+          (docker build --pull --network host -t coriolis-arm64 .) || (sleep 10 && docker build --network host -t coriolis-arm64 .)
+          CID=$(docker create coriolis-arm64)
+          mkdir -p build
+          docker cp "$CID":/src/build ./build || true
+          echo "---- Last 200 container logs ----"
+          docker logs "$CID" --tail 200 || true
+          docker rm "$CID" || true
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: coriolis-arm64
+          path: build
+
