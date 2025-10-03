@@ -1,0 +1,21 @@
+name: Build for Raspberry Pi (ARM64)
+
+on:
+  push:
+    branches: [ "main", "pi-build" ]
+  workflow_dispatch:
+
+jobs:
+  arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build inside Docker (list only)
+        run: |
+          set -euxo pipefail
+          docker build -t coriolis-arm64 .
+          CID=$(docker create coriolis-arm64)
+          echo "---- Last 100 docker logs lines (if any) ----"
+          docker logs "$CID" --tail 100 || true
+          docker rm "$CID" || true
